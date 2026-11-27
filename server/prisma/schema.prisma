@@ -1,0 +1,149 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email            String         @unique @db.VarChar(320)
+  passwordHash     String?        @map("password_hash")
+  displayName      String         @map("display_name") @db.VarChar(150)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  attachments      Attachment[]
+  boardMemberships BoardMember[]
+  createdObjects   BoardObject[]
+  boardVersions    BoardVersion[]
+  ownedBoards      Board[]        @relation("BoardOwner")
+  comments         Comment[]
+
+  @@map("users")
+}
+
+model Board {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title       String         @db.VarChar(200)
+  description String?
+  ownerId     String         @map("owner_id") @db.Uuid
+  isTemplate  Boolean        @default(false) @map("is_template")
+  isArchived  Boolean        @default(false) @map("is_archived")
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+  members     BoardMember[]
+  objects     BoardObject[]
+  versions    BoardVersion[]
+  owner       User           @relation("BoardOwner", fields: [ownerId], references: [id])
+  comments    Comment[]
+
+  @@map("boards")
+}
+
+model BoardMember {
+  boardId String @map("board_id") @db.Uuid
+  userId  String @map("user_id") @db.Uuid
+  role    String @db.VarChar(20)
+  board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([boardId, userId])
+  @@index([userId], map: "idx_board_members_user")
+  @@map("board_members")
+}
+
+model BoardObject {
+  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  boardId           String             @map("board_id") @db.Uuid
+  createdBy         String?            @map("created_by") @db.Uuid
+  objectType        String             @map("object_type") @db.VarChar(30)
+  x                 Decimal            @default(0) @db.Decimal(12, 3)
+  y                 Decimal            @default(0) @db.Decimal(12, 3)
+  width             Decimal            @default(100) @db.Decimal(12, 3)
+  height            Decimal            @default(100) @db.Decimal(12, 3)
+  rotation          Decimal            @default(0) @db.Decimal(8, 3)
+  layerIndex        Int                @default(0) @map("layer_index")
+  isLocked          Boolean            @default(false) @map("is_locked")
+  content           Json               @default("{}")
+  style             Json               @default("{}")
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime           @default(now()) @map("updated_at") @db.Timestamptz(6)
+  board             Board              @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  creator           User?              @relation(fields: [createdBy], references: [id])
+  comments          Comment[]
+  attachments       ObjectAttachment[]
+  sourceConnections ObjectConnection[] @relation("SourceObject")
+  targetConnections ObjectConnection[] @relation("TargetObject")
+
+  @@index([boardId], map: "idx_board_objects_board")
+  @@map("board_objects")
+}
+
+model ObjectConnection {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sourceObjectId String      @map("source_object_id") @db.Uuid
+  targetObjectId String      @map("target_object_id") @db.Uuid
+  sourceAnchor   String?     @map("source_anchor") @db.VarChar(50)
+  targetAnchor   String?     @map("target_anchor") @db.VarChar(50)
+  connectionData Json        @default("{}") @map("connection_data")
+  sourceObject   BoardObject @relation("SourceObject", fields: [sourceObjectId], references: [id], onDelete: Cascade)
+  targetObject   BoardObject @relation("TargetObject", fields: [targetObjectId], references: [id], onDelete: Cascade)
+
+  @@map("object_connections")
+}
+
+model Comment {
+  id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  boardId    String       @map("board_id") @db.Uuid
+  objectId   String?      @map("object_id") @db.Uuid
+  authorId   String       @map("author_id") @db.Uuid
+  body       String
+  isResolved Boolean      @default(false) @map("is_resolved")
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  author     User         @relation(fields: [authorId], references: [id])
+  board      Board        @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  object     BoardObject? @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@index([boardId], map: "idx_comments_board")
+  @@map("comments")
+}
+
+model Attachment {
+  id          String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  uploadedBy  String?            @map("uploaded_by") @db.Uuid
+  fileName    String             @map("file_name") @db.VarChar(255)
+  storagePath String             @unique @map("storage_path")
+  mimeType    String             @map("mime_type") @db.VarChar(150)
+  fileSize    BigInt             @map("file_size")
+  createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  uploader    User?              @relation(fields: [uploadedBy], references: [id])
+  objects     ObjectAttachment[]
+
+  @@map("attachments")
+}
+
+model ObjectAttachment {
+  objectId     String      @map("object_id") @db.Uuid
+  attachmentId String      @map("attachment_id") @db.Uuid
+  attachment   Attachment  @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+  object       BoardObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@id([objectId, attachmentId])
+  @@map("object_attachments")
+}
+
+model BoardVersion {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  boardId       String   @map("board_id") @db.Uuid
+  versionNumber Int      @map("version_number")
+  createdBy     String?  @map("created_by") @db.Uuid
+  snapshot      Json
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  board         Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  creator       User?    @relation(fields: [createdBy], references: [id])
+
+  @@unique([boardId, versionNumber])
+  @@index([boardId], map: "idx_board_versions_board")
+  @@map("board_versions")
+}
